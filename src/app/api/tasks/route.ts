@@ -20,11 +20,13 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await connectDB();
   const body = await req.json();
-  const { boardId, title, description, category, timeMinutes, order } = body;
+  const { boardId, title, description, category, timeMinutes, order, status, timeSpentMs } = body;
 
   if (!boardId || !title || !category) return NextResponse.json({ error: 'Campos obrigatórios ausentes.' }, { status: 400 });
   if (title.length > 100) return NextResponse.json({ error: 'Título muito longo.' }, { status: 400 });
   if (category.length > 30) return NextResponse.json({ error: 'Categoria muito longa.' }, { status: 400 });
+
+  const validStatuses = ['pending', 'in_progress', 'done'];
 
   const count = await Task.countDocuments({ boardId, userId: session.user.id });
   if (count >= 30) return NextResponse.json({ error: 'Limite de 30 tarefas por board atingido.' }, { status: 400 });
@@ -37,6 +39,8 @@ export async function POST(req: NextRequest) {
     category: category.trim(),
     timeMinutes: timeMinutes || null,
     order: order ?? count,
+    status: validStatuses.includes(status) ? status : 'pending',
+    timeSpentMs: typeof timeSpentMs === 'number' && timeSpentMs >= 0 ? timeSpentMs : 0,
   });
   return NextResponse.json(task, { status: 201 });
 }

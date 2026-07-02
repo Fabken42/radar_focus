@@ -21,7 +21,6 @@ export function Header() {
           {session && (
             <>
               <NavLink href="/app">Board</NavLink>
-              <NavLink href="/app/weekly">Semanal</NavLink>
               <NavLink href="/app/history">Histórico</NavLink>
               <NavLink href="/app/templates">Templates</NavLink>
               <NavLink href="/app/settings">Configurações</NavLink>
@@ -67,7 +66,6 @@ export function Header() {
       {session && (
         <div className="md:hidden border-t border-gray-200 dark:border-gray-800 px-4 py-2 flex gap-3 overflow-x-auto text-sm">
           <NavLink href="/app">Board</NavLink>
-          <NavLink href="/app/weekly">Semanal</NavLink>
           <NavLink href="/app/history">Histórico</NavLink>
           <NavLink href="/app/templates">Templates</NavLink>
           <NavLink href="/app/settings">Config</NavLink>

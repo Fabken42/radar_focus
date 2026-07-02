@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import { TaskList } from '@/components/tasks/TaskList';
 import { RadarDisplay } from '@/components/radar/RadarChart';
@@ -8,6 +9,8 @@ import { GradeDisplay } from '@/components/GradeDisplay';
 import { SpreadsheetImport } from '@/components/tasks/SpreadsheetImport';
 import { MigrationModal } from '@/components/MigrationModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { TemplatePickerModal } from '@/components/TemplatePickerModal';
+import { SaveTemplateModal } from '@/components/SaveTemplateModal';
 import { useLocalDataStore } from '@/store/localDataStore';
 import { calcBoardGrade } from '@/lib/utils/gradeCalculator';
 import { gradeColor, getNextColor } from '@/lib/utils/colors';
@@ -37,6 +40,7 @@ type Category = { _id?: string; id?: string; name: string; color: string };
 export default function AppPage() {
   const { data: session, status: authStatus } = useSession();
   const isLoggedIn = !!session?.user?.id;
+  const router = useRouter();
 
   const localStore = useLocalDataStore();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -48,6 +52,8 @@ export default function AppPage() {
   const [showMigration, setShowMigration] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
 
   // ── API helpers ──
   const api = useCallback(async (path: string, opts?: RequestInit) => {
@@ -62,6 +68,15 @@ export default function AppPage() {
     if (isLoggedIn) initLoggedIn();
     else initLocal();
   }, [authStatus, isLoggedIn]);
+
+  // ── Restore board from history ──
+  useEffect(() => {
+    if (loading) return;
+    const restoreId = sessionStorage.getItem('radarfocus-restore');
+    if (!restoreId) return;
+    sessionStorage.removeItem('radarfocus-restore');
+    handleRestoreBoard(restoreId);
+  }, [loading]);
 
   const initLoggedIn = async () => {
     setLoading(true);
@@ -163,12 +178,19 @@ export default function AppPage() {
   };
 
   const handleStatusChange = async (id: string, status: Task['status']) => {
-    if (isLoggedIn) {
-      await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-    } else {
-      localStore.updateTask(id, { status });
-    }
+    // Optimistic update — apply immediately, revert on error
+    const previous = tasks.find((t) => t._id === id || t.id === id)?.status;
     setTasks((prev) => prev.map((t) => (t._id === id || t.id === id) ? { ...t, status } : t));
+    try {
+      if (isLoggedIn) {
+        await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      } else {
+        localStore.updateTask(id, { status });
+      }
+    } catch (e: any) {
+      setTasks((prev) => prev.map((t) => (t._id === id || t.id === id) ? { ...t, status: previous ?? 'pending' } : t));
+      toast.error('Erro ao atualizar tarefa.');
+    }
   };
 
   const handleDeleteTask = async (id: string) => {
@@ -269,6 +291,142 @@ export default function AppPage() {
     }
   };
 
+  const handleApplyTemplate = async (templateTasks: { title: string; description: string; category: string; timeMinutes: number | null; order: number }[]) => {
+    const remaining = 30 - tasks.length;
+    const toAdd = templateTasks.slice(0, remaining);
+    if (toAdd.length === 0) { toast.error('Board já está no limite de 30 tarefas.'); return; }
+    for (const t of toAdd) {
+      await handleAddTask({ title: t.title, description: t.description || '', category: t.category, timeMinutes: t.timeMinutes });
+    }
+    if (toAdd.length < templateTasks.length) {
+      toast(`${toAdd.length} de ${templateTasks.length} tarefas adicionadas (limite atingido).`, { icon: '⚠️' });
+    } else {
+      toast.success(`${toAdd.length} tarefa(s) adicionada(s) do template!`);
+    }
+  };
+
+  const handleSaveAsTemplate = async (name: string) => {
+    if (tasks.length === 0) { toast.error('Adicione tarefas antes de salvar como template.'); return; }
+    const templateTasks = tasks.map((t, i) => ({
+      title: t.title,
+      description: t.description,
+      category: t.category,
+      timeMinutes: t.timeMinutes,
+      order: i,
+    }));
+    if (isLoggedIn) {
+      await api('/api/templates', {
+        method: 'POST',
+        body: JSON.stringify({ name, weekday: null, tasks: templateTasks }),
+      });
+    } else {
+      localStore.addTemplate({
+        id: genId(),
+        name,
+        weekday: null,
+        tasks: templateTasks,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    toast.success(`Template "${name}" salvo!`);
+  };
+
+  const handleRestoreBoard = async (boardId: string) => {
+    try {
+      // 1. Fetch tasks from the board to restore
+      let tasksToRestore: Task[] = [];
+      if (isLoggedIn) {
+        tasksToRestore = await api(`/api/tasks?boardId=${boardId}`);
+      } else {
+        tasksToRestore = localStore.tasks.filter((t) => t.boardId === boardId).map((t) => ({ ...t }));
+      }
+
+      if (tasksToRestore.length === 0) {
+        toast.error('Este board não tem tarefas para restaurar.');
+        return;
+      }
+
+      // 2. Save current board if it has tasks
+      let targetBoardId: string = activeBoardId!;
+
+      if (tasks.length > 0) {
+        if (isLoggedIn) {
+          const result = await api(`/api/boards/${activeBoardId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ action: 'save' }),
+          });
+          targetBoardId = result.newBoard._id;
+          toast.success(`Board atual salvo! Nota: ${result.saved.gradeSnapshot?.overall}`);
+        } else {
+          const { byCategory, overallScore, overall } = calcBoardGrade(tasks);
+          localStore.updateBoard(activeBoardId!, {
+            status: 'saved',
+            closedAt: new Date().toISOString(),
+            gradeSnapshot: {
+              overall,
+              overallScore,
+              byCategory: byCategory.map((c) => ({ category: c.category, grade: c.grade, score: c.score })),
+            },
+          });
+          const newBoard = {
+            id: genId(),
+            label: '',
+            status: 'open' as const,
+            gradeSnapshot: null,
+            createdAt: new Date().toISOString(),
+            closedAt: null,
+          };
+          localStore.addBoard(newBoard);
+          targetBoardId = newBoard.id;
+          toast.success(`Board atual salvo! Nota: ${overall}`);
+        }
+      }
+
+      // 3. Copy restored tasks into the target board
+      setActiveBoardId(targetBoardId);
+      setBoardLabel('');
+      setTasks([]);
+
+      const newTasks: Task[] = [];
+      for (const t of tasksToRestore.slice(0, 30)) {
+        if (isLoggedIn) {
+          const created = await api('/api/tasks', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: t.title,
+              description: t.description || '',
+              category: t.category,
+              timeMinutes: t.timeMinutes,
+              boardId: targetBoardId,
+              order: newTasks.length,
+              status: t.status,
+              timeSpentMs: t.timeSpentMs,
+            }),
+          });
+          newTasks.push(created);
+        } else {
+          const task: Task = {
+            id: genId(),
+            boardId: targetBoardId,
+            title: t.title,
+            description: t.description || '',
+            category: t.category,
+            timeMinutes: t.timeMinutes,
+            status: t.status,
+            timeSpentMs: t.timeSpentMs,
+            order: newTasks.length,
+          };
+          localStore.addTask(task as any);
+          newTasks.push(task);
+        }
+      }
+      setTasks(newTasks);
+      toast.success(`Board restaurado com ${newTasks.length} tarefa(s)!`);
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao restaurar board.');
+    }
+  };
+
   const handleMigrate = async () => {
     await api('/api/migrate', {
       method: 'POST',
@@ -313,6 +471,21 @@ export default function AppPage() {
     <div className="space-y-6">
       {showMigration && <MigrationModal onConfirm={handleMigrate} onSkip={handleSkipMigration} />}
       {showImport && <SpreadsheetImport onImport={handleImport} onClose={() => setShowImport(false)} />}
+      {showSaveTemplate && (
+        <SaveTemplateModal
+          onSave={handleSaveAsTemplate}
+          onClose={() => setShowSaveTemplate(false)}
+        />
+      )}
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          isLoggedIn={isLoggedIn}
+          localTemplates={localStore.templates as any}
+          onApply={handleApplyTemplate}
+          onSaveAsTemplate={() => setShowSaveTemplate(true)}
+          onClose={() => setShowTemplatePicker(false)}
+        />
+      )}
       {showDiscardConfirm && (
         <ConfirmModal
           title="Descartar board?"
@@ -348,9 +521,9 @@ export default function AppPage() {
           <span className={cn('text-xs px-2 py-1 rounded-full border', atCategoryLimit ? 'text-red-500 border-red-300 dark:border-red-800' : 'text-gray-400 border-gray-200 dark:border-gray-800')}>
             {categories.length}/10 categorias
           </span>
-          <Link href="/app/templates" className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+          <button onClick={() => setShowTemplatePicker(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
             <LayoutTemplate size={14} /> Templates
-          </Link>
+          </button>
           <button onClick={() => setShowImport(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
             <Upload size={14} /> Importar
           </button>
@@ -358,7 +531,7 @@ export default function AppPage() {
             <Trash2 size={14} /> Descartar
           </button>
           <button onClick={handleSaveBoard} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-            <Save size={14} /> Salvar
+            <Save size={14} /> Concluir
           </button>
         </div>
       </div>

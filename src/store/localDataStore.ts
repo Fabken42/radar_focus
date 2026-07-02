@@ -67,6 +67,7 @@ interface LocalDataStore {
   // Boards
   addBoard: (board: LocalBoard) => void;
   updateBoard: (id: string, updates: Partial<LocalBoard>) => void;
+  removeBoard: (id: string) => void;
 
   // Tasks
   addTask: (task: LocalTask) => void;
@@ -107,6 +108,11 @@ export const useLocalDataStore = create<LocalDataStore>()(
       addBoard: (board) => set((s) => ({ boards: [...s.boards, board] })),
       updateBoard: (id, updates) =>
         set((s) => ({ boards: s.boards.map((b) => (b.id === id ? { ...b, ...updates } : b)) })),
+      removeBoard: (id) =>
+        set((s) => ({
+          boards: s.boards.filter((b) => b.id !== id),
+          tasks: s.tasks.filter((t) => t.boardId !== id),
+        })),
 
       addTask: (task) => set((s) => ({ tasks: [...s.tasks, task] })),
       updateTask: (id, updates) =>
