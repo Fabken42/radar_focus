@@ -8,6 +8,7 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'RadarFocus — Veja seus pontos fortes e fracos em um único gráfico.',
   description: 'To-do list gamificado com gráfico de radar por categoria.',
+  icons: { icon: '/favicon.png' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
