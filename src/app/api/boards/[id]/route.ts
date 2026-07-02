@@ -6,26 +6,28 @@ import Board from '@/models/Board';
 import Task from '@/models/Task';
 import { calcBoardGrade } from '@/lib/utils/gradeCalculator';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await connectDB();
-  const board = await Board.findOne({ _id: params.id, userId: session.user.id });
+  const { id } = await params;
+  const board = await Board.findOne({ _id: id, userId: session.user.id });
   if (!board) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   return NextResponse.json(board);
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await connectDB();
+  const { id } = await params;
 
   const body = await req.json();
-  const board = await Board.findOne({ _id: params.id, userId: session.user.id });
+  const board = await Board.findOne({ _id: id, userId: session.user.id });
   if (!board) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   if (body.action === 'save') {
-    const tasks = await Task.find({ boardId: params.id, userId: session.user.id });
+    const tasks = await Task.find({ boardId: id, userId: session.user.id });
     const { byCategory, overallScore, overall } = calcBoardGrade(tasks);
     board.status = 'saved';
     board.closedAt = new Date();
@@ -52,11 +54,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json(board);
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   await connectDB();
-  await Board.findOneAndDelete({ _id: params.id, userId: session.user.id });
-  await Task.deleteMany({ boardId: params.id, userId: session.user.id });
+  const { id } = await params;
+  await Board.findOneAndDelete({ _id: id, userId: session.user.id });
+  await Task.deleteMany({ boardId: id, userId: session.user.id });
   return NextResponse.json({ ok: true });
 }
