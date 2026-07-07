@@ -69,7 +69,8 @@ export function calcBoardGrade(tasks: TaskLike[]): {
 } {
   const byCategory = calcCategoryScores(tasks);
   const hasEnoughCategories = byCategory.length >= 3;
-  const overallScore = hasEnoughCategories ? calcOverallScore(byCategory) : 0;
+  const totalDone = tasks.filter((t) => t.status === 'done').length;
+  const overallScore = tasks.length > 0 ? totalDone / tasks.length : 0;
   return {
     byCategory,
     overallScore,

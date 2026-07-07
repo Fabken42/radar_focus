@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.action === 'save') {
     const tasks = await Task.find({ boardId: id, userId: session.user.id });
     const { byCategory, overallScore, overall } = calcBoardGrade(tasks);
+    if (body.label !== undefined) board.label = body.label;
     board.status = 'saved';
     board.closedAt = new Date();
     board.gradeSnapshot = {

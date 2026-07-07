@@ -7,20 +7,33 @@ interface ThemeStore {
   toggleTheme: () => void;
 }
 
+function applyTheme(theme: 'light' | 'dark') {
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  }
+}
+
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set, get) => ({
       theme: 'light',
       setTheme: (theme) => {
         set({ theme });
-        document.documentElement.classList.toggle('dark', theme === 'dark');
+        applyTheme(theme);
       },
       toggleTheme: () => {
         const next = get().theme === 'dark' ? 'light' : 'dark';
         set({ theme: next });
-        document.documentElement.classList.toggle('dark', next === 'dark');
+        applyTheme(next);
       },
     }),
-    { name: 'radarf-theme' }
+    {
+      name: 'radarf-theme',
+      // Re-applies the correct class after Zustand rehydrates from localStorage,
+      // preventing the ThemeInitializer from reverting the class set by the inline script.
+      onRehydrateStorage: () => (state) => {
+        if (state) applyTheme(state.theme);
+      },
+    }
   )
 );

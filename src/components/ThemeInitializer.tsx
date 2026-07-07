@@ -1,19 +1,7 @@
-'use client';
-import { useEffect } from 'react';
-import { useThemeStore } from '@/store/themeStore';
-
+// Theme is now handled by:
+// 1. The inline script in layout.tsx (prevents flash on initial load)
+// 2. onRehydrateStorage in themeStore.ts (re-applies after Zustand hydrates)
+// 3. setTheme/toggleTheme in the store (user-triggered changes)
 export function ThemeInitializer() {
-  const { theme, setTheme } = useThemeStore();
-
-  useEffect(() => {
-    const stored = theme;
-    if (stored) {
-      document.documentElement.classList.toggle('dark', stored === 'dark');
-    } else {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      setTheme(prefersDark ? 'dark' : 'light');
-    }
-  }, []);
-
   return null;
 }

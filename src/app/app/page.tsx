@@ -221,7 +221,7 @@ export default function AppPage() {
     if (tasks.length === 0) { toast.error('Adicione tarefas antes de salvar o board.'); return; }
     try {
       if (isLoggedIn) {
-        const result = await api(`/api/boards/${activeBoardId}`, { method: 'PATCH', body: JSON.stringify({ action: 'save' }) });
+        const result = await api(`/api/boards/${activeBoardId}`, { method: 'PATCH', body: JSON.stringify({ action: 'save', label: boardLabel }) });
         setActiveBoardId(result.newBoard._id);
         setBoardLabel('');
         setTasks([]);
@@ -229,6 +229,7 @@ export default function AppPage() {
       } else {
         const { byCategory, overallScore, overall } = calcBoardGrade(tasks);
         localStore.updateBoard(activeBoardId, {
+          label: boardLabel,
           status: 'saved',
           closedAt: new Date().toISOString(),
           gradeSnapshot: {
@@ -427,6 +428,18 @@ export default function AppPage() {
     }
   };
 
+  const handleBoardLabelBlur = async () => {
+    if (!activeBoardId) return;
+    if (isLoggedIn) {
+      await api(`/api/boards/${activeBoardId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label: boardLabel }),
+      }).catch(() => {});
+    } else {
+      localStore.updateBoard(activeBoardId, { label: boardLabel });
+    }
+  };
+
   const handleMigrate = async () => {
     await api('/api/migrate', {
       method: 'POST',
@@ -506,10 +519,11 @@ export default function AppPage() {
             placeholder="Nome do board (opcional)"
             value={boardLabel}
             onChange={(e) => setBoardLabel(e.target.value.slice(0, 50))}
-            className="text-lg font-bold bg-transparent border-b border-transparent hover:border-gray-300 dark:hover:border-gray-700 focus:border-indigo-400 outline-none transition-colors placeholder:text-gray-300 dark:placeholder:text-gray-700 w-48"
+            onBlur={handleBoardLabelBlur}
+            className="text-lg font-bold bg-transparent border-b border-transparent hover:border-gray-300 dark:hover:border-gray-700 focus:border-indigo-400 outline-none transition-colors placeholder:text-gray-300 dark:placeholder:text-gray-700 w-56 max-w-xs"
             aria-label="Nome do board"
           />
-          {hasEnoughCategories && (
+          {tasks.length > 0 && (
             <GradeDisplay grade={overall} score={overallScore} size="sm" showScore />
           )}
         </div>
