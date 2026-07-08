@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLocalDataStore } from '@/store/localDataStore';
-import { Plus, Trash2, Edit2, Calendar } from 'lucide-react';
+import { Plus, Trash2, Edit2, Calendar, ClipboardList } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -232,7 +232,7 @@ export default function TemplatesPage() {
 
       {templates.length === 0 && !showForm && (
         <div className="text-center py-20 text-gray-400">
-          <div className="text-5xl mb-3">📋</div>
+          <ClipboardList size={48} className="mb-3 text-gray-300 dark:text-gray-700" />
           <p className="font-medium">Nenhum template ainda</p>
           <p className="text-sm mt-1">Crie templates para reutilizar conjuntos de tarefas.</p>
         </div>

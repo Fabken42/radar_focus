@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { TaskForm } from '@/components/tasks/TaskForm';
@@ -9,15 +9,17 @@ import { GradeDisplay } from '@/components/GradeDisplay';
 import { SpreadsheetImport } from '@/components/tasks/SpreadsheetImport';
 import { MigrationModal } from '@/components/MigrationModal';
 import { ConfirmModal } from '@/components/ConfirmModal';
-import { TemplatePickerModal } from '@/components/TemplatePickerModal';
+import { TemplatePickerModal, type Template } from '@/components/TemplatePickerModal';
 import { SaveTemplateModal } from '@/components/SaveTemplateModal';
 import { useLocalDataStore } from '@/store/localDataStore';
 import { calcBoardGrade } from '@/lib/utils/gradeCalculator';
 import { gradeColor, getNextColor } from '@/lib/utils/colors';
 import toast from 'react-hot-toast';
-import { Save, Trash2, Upload, LayoutTemplate } from 'lucide-react';
+import { Save, Trash2, Upload, LayoutTemplate, AlertTriangle, HardDrive } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import Link from 'next/link';
+
+const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 function genId() {
   return typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).slice(2);
@@ -54,6 +56,9 @@ export default function AppPage() {
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [formCategoryOverride, setFormCategoryOverride] = useState('');
+  const [templateSuggestion, setTemplateSuggestion] = useState<Template | null>(null);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
 
   // ── API helpers ──
   const api = useCallback(async (path: string, opts?: RequestInit) => {
@@ -203,6 +208,25 @@ export default function AppPage() {
     toast.success('Tarefa removida.');
   };
 
+  const handleReorderTasks = (newOrder: { id: string; order: number }[]) => {
+    const orderMap = new Map(newOrder.map((o) => [o.id, o.order]));
+    setTasks((prev) => {
+      const updated = prev.map((t) => {
+        const tid = t._id || t.id || '';
+        const o = orderMap.get(tid);
+        return o !== undefined ? { ...t, order: o } : t;
+      });
+      return [...updated].sort((a, b) => a.order - b.order);
+    });
+    if (isLoggedIn) {
+      api('/api/tasks/reorder', { method: 'POST', body: JSON.stringify({ items: newOrder }) }).catch(() => {});
+    } else {
+      for (const { id, order } of newOrder) {
+        localStore.updateTask(id, { order });
+      }
+    }
+  };
+
   const handleTimeSpent = async (id: string, ms: number) => {
     const task = tasks.find((t) => t._id === id || t.id === id);
     if (!task) return;
@@ -225,6 +249,7 @@ export default function AppPage() {
         setActiveBoardId(result.newBoard._id);
         setBoardLabel('');
         setTasks([]);
+        setSuggestionDismissed(false);
         toast.success(`Board salvo! Nota: ${result.saved.gradeSnapshot?.overall}`);
       } else {
         const { byCategory, overallScore, overall } = calcBoardGrade(tasks);
@@ -250,6 +275,7 @@ export default function AppPage() {
         setActiveBoardId(newBoard.id);
         setBoardLabel('');
         setTasks([]);
+        setSuggestionDismissed(false);
         toast.success(`Board salvo! Nota: ${overall}`);
       }
     } catch (e: any) {
@@ -265,6 +291,7 @@ export default function AppPage() {
         setActiveBoardId(result.newBoard._id);
         setBoardLabel('');
         setTasks([]);
+        setSuggestionDismissed(false);
       } else {
         localStore.updateBoard(activeBoardId, { status: 'discarded', closedAt: new Date().toISOString() });
         const newBoard = {
@@ -279,8 +306,9 @@ export default function AppPage() {
         setActiveBoardId(newBoard.id);
         setBoardLabel('');
         setTasks([]);
+        setSuggestionDismissed(false);
       }
-      toast('Board descartado.', { icon: '🗑️' });
+      toast('Board descartado.', { icon: <Trash2 size={16} className="text-gray-500" /> });
     } catch (e: any) {
       toast.error(e.message || 'Erro ao descartar board.');
     }
@@ -300,7 +328,7 @@ export default function AppPage() {
       await handleAddTask({ title: t.title, description: t.description || '', category: t.category, timeMinutes: t.timeMinutes });
     }
     if (toAdd.length < templateTasks.length) {
-      toast(`${toAdd.length} de ${templateTasks.length} tarefas adicionadas (limite atingido).`, { icon: '⚠️' });
+      toast(`${toAdd.length} de ${templateTasks.length} tarefas adicionadas (limite atingido).`, { icon: <AlertTriangle size={16} className="text-amber-500" /> });
     } else {
       toast.success(`${toAdd.length} tarefa(s) adicionada(s) do template!`);
     }
@@ -460,11 +488,35 @@ export default function AppPage() {
     setShowMigration(false);
   };
 
-  // ── Computed ──
-  const categoryColors: Record<string, string> = {};
-  categories.forEach((c) => { categoryColors[c.name] = c.color; });
+  // ── Template suggestion for today's weekday ──
+  useEffect(() => {
+    if (loading || suggestionDismissed || tasks.length > 0) {
+      if (tasks.length > 0) setTemplateSuggestion(null);
+      return;
+    }
+    const day = new Date().getDay();
+    if (isLoggedIn) {
+      fetch('/api/templates')
+        .then((r) => r.json())
+        .then((list: Template[]) => setTemplateSuggestion(list.find((t) => t.weekday === day) ?? null))
+        .catch(() => {});
+    } else {
+      const match = (localStore.templates as unknown as Template[]).find((t) => t.weekday === day) ?? null;
+      setTemplateSuggestion(match);
+    }
+  }, [loading, tasks.length, isLoggedIn, suggestionDismissed]);
 
-  const { byCategory, overallScore, overall, hasEnoughCategories } = calcBoardGrade(tasks);
+  // ── Computed ──
+  const categoryColors = useMemo(() => {
+    const map: Record<string, string> = {};
+    categories.forEach((c) => { map[c.name] = c.color; });
+    return map;
+  }, [categories]);
+
+  const { byCategory, overallScore, overall, hasEnoughCategories } = useMemo(
+    () => calcBoardGrade(tasks),
+    [tasks]
+  );
   const atCategoryLimit = categories.length >= 10;
   const atTaskLimit = tasks.length >= 30;
 
@@ -550,6 +602,34 @@ export default function AppPage() {
         </div>
       </div>
 
+      {/* Template suggestion banner */}
+      {templateSuggestion && !suggestionDismissed && tasks.length === 0 && (
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              Template de {WEEKDAYS[new Date().getDay()]} disponível: "{templateSuggestion.name}"
+            </p>
+            <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-0.5">
+              {templateSuggestion.tasks.length} tarefa(s) — clique para aplicar ao board atual
+            </p>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={() => setSuggestionDismissed(true)}
+              className="text-xs text-indigo-500 dark:text-indigo-400 hover:underline px-2 py-1"
+            >
+              Dispensar
+            </button>
+            <button
+              onClick={() => { handleApplyTemplate(templateSuggestion.tasks); setSuggestionDismissed(true); }}
+              className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+            >
+              Aplicar template
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: tasks */}
         <div className="space-y-4">
@@ -559,6 +639,7 @@ export default function AppPage() {
             onCreateCategory={handleCreateCategory}
             atCategoryLimit={atCategoryLimit}
             taskCount={tasks.length}
+            categoryOverride={formCategoryOverride}
           />
 
           {/* Category filter */}
@@ -578,7 +659,11 @@ export default function AppPage() {
               {byCategory.map((c) => (
                 <button
                   key={c.category}
-                  onClick={() => setSelectedCategory(c.category === selectedCategory ? null : c.category)}
+                  onClick={() => {
+                    const next = c.category === selectedCategory ? null : c.category;
+                    setSelectedCategory(next);
+                    if (next) setFormCategoryOverride(next);
+                  }}
                   className={cn(
                     'px-3 py-1 text-xs rounded-full border transition-colors flex items-center gap-1',
                     selectedCategory === c.category
@@ -611,12 +696,13 @@ export default function AppPage() {
             onDelete={handleDeleteTask}
             onTimeSpent={handleTimeSpent}
             onUpdate={handleUpdateTask}
+            onReorder={selectedCategory === null ? handleReorderTasks : undefined}
             loading={loading}
           />
         </div>
 
         {/* Right: radar */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 sticky top-[4.5rem] self-start">
           <h2 className="font-bold text-gray-900 dark:text-white mb-4">Radar do Board</h2>
           <RadarDisplay
             categories={byCategory}
@@ -640,7 +726,7 @@ export default function AppPage() {
 
       {!isLoggedIn && (
         <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 text-sm text-indigo-700 dark:text-indigo-300 flex items-center gap-3 justify-between flex-wrap">
-          <span>💾 Dados salvos localmente. Faça login para sincronizar entre dispositivos.</span>
+          <span className="flex items-center gap-1.5"><HardDrive size={14} /> Dados salvos localmente. Faça login para sincronizar entre dispositivos.</span>
           <Link href="/signin" className="font-semibold underline whitespace-nowrap">Entrar com Google →</Link>
         </div>
       )}

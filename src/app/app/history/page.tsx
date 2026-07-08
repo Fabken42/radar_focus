@@ -11,7 +11,7 @@ import { gradeColor } from '@/lib/utils/colors';
 import { cn } from '@/lib/utils/cn';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Trash2, RotateCcw } from 'lucide-react';
+import { Trash2, RotateCcw, Radar as RadarIcon, BookOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 type Period = { label: string; days: number | 'all'; title: string };
@@ -161,7 +161,7 @@ export default function HistoryPage() {
           <div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
         ) : !radarData?.hasEnoughCategories ? (
           <div className="text-center py-12 text-gray-400">
-            <div className="text-4xl mb-2">📡</div>
+            <RadarIcon size={40} className="mb-2 text-gray-300 dark:text-gray-700" />
             <p className="font-medium">Dados insuficientes</p>
             <p className="text-sm mt-1">Salve boards com pelo menos 3 categorias no período selecionado.</p>
           </div>
@@ -191,7 +191,7 @@ export default function HistoryPage() {
           </div>
         ) : boards.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
-            <div className="text-5xl mb-3">📚</div>
+            <BookOpen size={48} className="mb-3 text-gray-300 dark:text-gray-700" />
             <p className="font-medium text-lg">Nenhum board salvo ainda</p>
             <p className="text-sm mt-1">Conclua um board na tela principal para ver o histórico aqui.</p>
           </div>

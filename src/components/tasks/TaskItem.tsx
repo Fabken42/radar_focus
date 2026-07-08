@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { Check, Clock, Play, Square, Trash2, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react';
+import { Check, Clock, Play, Square, Trash2, ChevronDown, ChevronUp, Pencil, X, GripVertical, AlarmClock } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { useTimerStore } from '@/store/timerStore';
 import toast from 'react-hot-toast';
@@ -23,6 +23,7 @@ interface Props {
   onDelete: (id: string) => Promise<void>;
   onTimeSpent: (id: string, ms: number) => Promise<void>;
   onUpdate: (id: string, updates: { title?: string; description?: string }) => Promise<void>;
+  showDragHandle?: boolean;
 }
 
 function formatTime(ms: number) {
@@ -32,7 +33,7 @@ function formatTime(ms: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function TaskItem({ task, categoryColor, onStatusChange, onDelete, onTimeSpent, onUpdate }: Props) {
+export function TaskItem({ task, categoryColor, onStatusChange, onDelete, onTimeSpent, onUpdate, showDragHandle }: Props) {
   const id = task._id || task.id || '';
   const { activeTaskId, startTimestamp, durationMs, setTimer, clearTimer } = useTimerStore();
   const isActive = activeTaskId === id;
@@ -65,7 +66,7 @@ export function TaskItem({ task, categoryColor, onStatusChange, onDelete, onTime
         const spent = durationMs;
         clearTimer();
         onTimeSpent(id, spent);
-        toast('⏰ Tempo esgotado! ' + task.title, { icon: '⏰' });
+        toast('Tempo esgotado! ' + task.title, { icon: <AlarmClock size={16} className="text-amber-500" /> });
         if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
           new Notification('RadarFocus — Tempo esgotado!', { body: task.title });
         }
@@ -177,6 +178,11 @@ export function TaskItem({ task, categoryColor, onStatusChange, onDelete, onTime
         </div>
       ) : (
         <div className="flex items-start gap-3">
+          {showDragHandle && (
+            <div className="mt-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-300 dark:text-gray-700 hover:text-gray-400 dark:hover:text-gray-500">
+              <GripVertical size={16} />
+            </div>
+          )}
           {/* Status toggle */}
           <button
             onClick={handleToggleDone}
@@ -231,7 +237,7 @@ export function TaskItem({ task, categoryColor, onStatusChange, onDelete, onTime
             )}
 
             {task.description && expanded && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{task.description}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">{task.description}</p>
             )}
           </div>
 

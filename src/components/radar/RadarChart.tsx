@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { gradeColor } from '@/lib/utils/colors';
 import { CategoryScore } from '@/lib/utils/gradeCalculator';
+import { Radar as RadarIcon } from 'lucide-react';
 
 interface Props {
   categories: CategoryScore[];
@@ -49,7 +50,7 @@ export function RadarDisplay({ categories, onCategoryClick, height = 320 }: Prop
     const missing = 3 - categories.length;
     return (
       <div className="flex flex-col items-center justify-center h-48 text-center text-gray-500 dark:text-gray-400 gap-2">
-        <div className="text-4xl">📡</div>
+        <RadarIcon size={40} className="text-gray-300 dark:text-gray-700" />
         <p className="font-medium">Radar indisponível</p>
         <p className="text-sm">
           Adicione tarefas em mais{' '}

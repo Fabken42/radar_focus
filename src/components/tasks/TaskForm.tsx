@@ -1,9 +1,27 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { CategoryCombobox } from './CategoryCombobox';
 import toast from 'react-hot-toast';
+
+const HISTORY_KEY = 'radarfocus-task-history';
+const MAX_HISTORY = 50;
+
+function loadHistory(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveToHistory(title: string) {
+  const history = loadHistory();
+  const updated = [title, ...history.filter((h) => h !== title)].slice(0, MAX_HISTORY);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+}
 
 interface TaskFormProps {
   categories: { name: string; color: string }[];
@@ -17,18 +35,71 @@ interface TaskFormProps {
   atCategoryLimit?: boolean;
   taskCount?: number;
   maxTasks?: number;
+  categoryOverride?: string;
 }
 
-export function TaskForm({ categories, onSubmit, onCreateCategory, atCategoryLimit, taskCount = 0, maxTasks = 30 }: TaskFormProps) {
+export function TaskForm({ categories, onSubmit, onCreateCategory, atCategoryLimit, taskCount = 0, maxTasks = 30, categoryOverride }: TaskFormProps) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [timeMinutes, setTimeMinutes] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const historyRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    historyRef.current = loadHistory();
+  }, []);
+
+  useEffect(() => {
+    if (categoryOverride) {
+      setCategory(categoryOverride);
+      setExpanded(true);
+    }
+  }, [categoryOverride]);
+
+  const handleTitleChange = (value: string) => {
+    const v = value.slice(0, 100);
+    setTitle(v);
+    setActiveSuggestion(-1);
+    if (v.trim().length >= 2) {
+      const matches = historyRef.current
+        .filter((h) => h.toLowerCase().includes(v.toLowerCase()))
+        .slice(0, 5);
+      setSuggestions(matches);
+    } else {
+      setSuggestions([]);
+    }
+  };
+
+  const selectSuggestion = (s: string) => {
+    setTitle(s);
+    setSuggestions([]);
+    setActiveSuggestion(-1);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestion((prev) => Math.min(prev + 1, suggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestion((prev) => Math.max(prev - 1, -1));
+    } else if (e.key === 'Enter' && activeSuggestion >= 0) {
+      e.preventDefault();
+      selectSuggestion(suggestions[activeSuggestion]);
+    } else if (e.key === 'Escape') {
+      setSuggestions([]);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSuggestions([]);
     if (!title.trim()) { toast.error('Título obrigatório.'); return; }
     if (!category) { toast.error('Selecione uma categoria.'); return; }
     if (taskCount >= maxTasks) { toast.error(`Limite de ${maxTasks} tarefas por board atingido.`); return; }
@@ -38,11 +109,14 @@ export function TaskForm({ categories, onSubmit, onCreateCategory, atCategoryLim
     setLoading(true);
     try {
       await onSubmit({ title: title.trim(), description: description.trim(), category, timeMinutes: mins });
+      saveToHistory(title.trim());
+      historyRef.current = [title.trim(), ...historyRef.current.filter((h) => h !== title.trim())].slice(0, MAX_HISTORY);
       setTitle('');
       setDescription('');
       setCategory('');
       setTimeMinutes('');
       setExpanded(false);
+      setTimeout(() => titleRef.current?.focus(), 0);
     } catch {
       toast.error('Erro ao adicionar tarefa.');
     } finally {
@@ -53,16 +127,39 @@ export function TaskForm({ categories, onSubmit, onCreateCategory, atCategoryLim
   return (
     <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 space-y-3">
       <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="Adicionar tarefa..."
-          value={title}
-          onChange={(e) => setTitle(e.target.value.slice(0, 100))}
-          onFocus={() => setExpanded(true)}
-          className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:border-indigo-400 dark:focus:border-indigo-500 outline-none transition-colors"
-          maxLength={100}
-          aria-label="Título da tarefa"
-        />
+        <div className="flex-1 relative">
+          <input
+            ref={titleRef}
+            type="text"
+            placeholder="Adicionar tarefa..."
+            value={title}
+            onChange={(e) => handleTitleChange(e.target.value)}
+            onFocus={() => setExpanded(true)}
+            onKeyDown={handleTitleKeyDown}
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:border-indigo-400 dark:focus:border-indigo-500 outline-none transition-colors"
+            maxLength={100}
+            aria-label="Título da tarefa"
+            autoComplete="off"
+          />
+          {suggestions.length > 0 && (
+            <ul className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
+              {suggestions.map((s, i) => (
+                <li
+                  key={s}
+                  onMouseDown={(e) => { e.preventDefault(); selectSuggestion(s); }}
+                  className={cn(
+                    'px-3 py-2 text-sm cursor-pointer',
+                    i === activeSuggestion
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                  )}
+                >
+                  {s}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <button
           type="submit"
           disabled={loading}
